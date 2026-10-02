@@ -81,6 +81,7 @@ function start3D() {
   const gm = g.globeMaterial(); gm.color.set('#000000'); gm.emissive.set('#e1e5ea'); gm.shininess = 0;
   g.controls().autoRotate = true;
   g.controls().autoRotateSpeed = 0.6;
+  g.controls().enableZoom = false;   // fixed size: the mouse wheel / pinch does not zoom
   const fit = () => g.width(w()).height(h());
   addEventListener('resize', fit);
   if (window.ResizeObserver) new ResizeObserver(fit).observe(box);
@@ -168,6 +169,9 @@ function startFlat() {
     requestAnimationFrame(frame);
   })(performance.now());
 }
+
+// Keep the globe at a fixed size: also block Ctrl+wheel / pinch page zoom over the globe
+addEventListener('wheel', e => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
 
 let ok = q.get('mode') !== 'flat' && webglOK();
 if (ok) { try { start3D(); } catch (e) { ok = false; document.getElementById('globe').innerHTML = ''; } }
