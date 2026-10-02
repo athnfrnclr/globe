@@ -11,7 +11,7 @@
   #vizWrap{position:relative;min-height:0;min-width:0}
   #globe{position:absolute;inset:0}
   tableau-viz{display:block;width:100%;height:100%}
-  #note{display:none;position:absolute;inset:0;padding:24px;font-size:14px;line-height:1.6;color:#59636e}
+  #note{display:none;position:absolute;inset:0;background:#fff;padding:24px;font-size:14px;line-height:1.6;color:#59636e}
   @media (max-width:800px){#app{grid-template-columns:1fr;grid-template-rows:55% 45%}}
   #year{position:absolute;top:10px;left:14px;z-index:2;font-size:34px;font-weight:600}
   #legend{position:absolute;bottom:10px;left:12px;z-index:2;font-size:12px;display:flex;flex-direction:column;gap:3px}
@@ -32,7 +32,7 @@
 </div>
 <div id="vizWrap">
 <tableau-viz id="viz" hide-tabs toolbar="hidden"></tableau-viz>
-<div id="note"><b>Add your Tableau Public link.</b><br>Open this page with <code>?viz=https://public.tableau.com/views/YourWorkbook/YourDashboard</code> or put the link in the <code>PASTE_YOUR_TABLEAU_PUBLIC_LINK_HERE</code> line near the bottom of this file.</div>
+<div id="note"><b>The Tableau dashboard could not be loaded.</b><br>Check that the workbook is public (not private). If your link is a <code>/shared/</code> link, use the embed address instead: in Tableau Public choose <b>Share &gt; Embed Code</b>, copy the address that ends in <code>/views/&lt;Workbook&gt;/&lt;Dashboard&gt;</code>, and open this page with <code>?viz=&lt;that address&gt;</code>.</div>
 </div>
 </div>
 <script>/* globe.gl 2.46.2 (MIT) bundled */
@@ -229,9 +229,11 @@ if (!ok) startFlat();
 // Embedding API v3 (hosted by Tableau Public). It also registers the <tableau-viz> element.
 import { TableauEventType } from "https://public.tableau.com/javascripts/api/tableau.embedding.3.latest.js";
 
-const VIZ_URL = new URLSearchParams(location.search).get('viz') || 'PASTE_YOUR_TABLEAU_PUBLIC_LINK_HERE';
+// Your dashboard. Override with ?viz=<address> (e.g. an https://public.tableau.com/views/<Workbook>/<Dashboard> address).
+const VIZ_URL = new URLSearchParams(location.search).get('viz') || 'https://public.tableau.com/shared/SGQK5TBFP';
 const viz = document.getElementById('viz');
-if (VIZ_URL.startsWith('http')) viz.src = VIZ_URL; else document.getElementById('note').style.display = 'block';
+viz.addEventListener(TableauEventType.VizLoadError, () => { document.getElementById('note').style.display = 'block'; });
+viz.src = VIZ_URL;
 
 const pickYear = v => { const m = String(v).replace(/,/g, '').match(/\b(19|20)\d{2}\b/); return m ? +m[0] : null; };
 
