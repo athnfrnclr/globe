@@ -82,7 +82,14 @@ function start3D() {
   g.controls().autoRotate = true;
   g.controls().autoRotateSpeed = 0.6;
   g.controls().enableZoom = false;   // fixed size: the mouse wheel / pinch does not zoom
-  const fit = () => g.width(w()).height(h());
+  // Size the 3D globe like the 2D fallback: diameter = 84% of the shorter side of the frame
+  const fitCam = () => {
+    const k = 0.84 * Math.min(w(), h()) / h();                       // globe radius as a fraction of half the frame height
+    const d = 1 / Math.sin(Math.atan(k * Math.tan(25 * Math.PI / 180)));   // camera distance (globe radii), field of view 50 deg
+    g.pointOfView({ altitude: d - 1 }, 0);
+  };
+  const fit = () => { g.width(w()).height(h()); fitCam(); };
+  fitCam();
   addEventListener('resize', fit);
   if (window.ResizeObserver) new ResizeObserver(fit).observe(box);
   setTimeout(() => g.pointRadius(d => radius(d.pop)), 200);
