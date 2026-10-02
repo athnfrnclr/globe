@@ -61,23 +61,101 @@ const pts = DATA.rows.filter(r => r[5][yi] != null)
   .map(r => ({ name: r[0], cont: r[1], lat: r[3], lng: r[4], pop: r[5][yi] }))
   .sort((a, b) => b.pop - a.pop);
 
-const g = Globe()(document.getElementById('globe'))
-  .showAtmosphere(true).atmosphereColor('#b9c0c8').atmosphereAltitude(0.1)
-  .polygonsData(WORLD).polygonCapColor(() => '#aab2bb').polygonSideColor(() => '#aab2bb').polygonStrokeColor(() => '#ffffff').polygonAltitude(0.002)
-  .backgroundColor(BG)
-  .width(innerWidth).height(innerHeight)
-  .pointsData(pts)
-  .pointLat('lat').pointLng('lng')
-  .pointColor(d => rgba(COLORS[d.cont] || '#555555', 0.85))
-  .pointRadius(0.01).pointAltitude(0.004)                   // start tiny, then grow
-  .pointsMerge(false)
-  .pointsTransitionDuration(1000)
-  .pointLabel(d => `<b>${d.name}</b> (${yearStr})<br>${d.cont}<br>${d.pop.toLocaleString()} people`);
-const gm = g.globeMaterial(); gm.color.set('#000000'); gm.emissive.set('#e1e5ea'); gm.shininess = 0;
-g.controls().autoRotate = true;
-g.controls().autoRotateSpeed = 0.6;
-addEventListener('resize', () => g.width(innerWidth).height(innerHeight));
-setTimeout(() => g.pointRadius(d => radius(d.pop)), 200);
+function webglOK() {
+  try { const c = document.createElement('canvas'); return !!(c.getContext('webgl') || c.getContext('experimental-webgl')); }
+  catch (e) { return false; }
+}
+
+function start3D() {
+  const box = document.getElementById('globe');
+  const w = () => box.clientWidth || innerWidth, h = () => box.clientHeight || innerHeight;
+  const g = Globe()(box)
+    .showAtmosphere(true).atmosphereColor('#b9c0c8').atmosphereAltitude(0.1)
+    .polygonsData(WORLD).polygonCapColor(() => '#aab2bb').polygonSideColor(() => '#aab2bb').polygonStrokeColor(() => '#ffffff').polygonAltitude(0.002)
+    .backgroundColor(BG)
+    .width(w()).height(h())
+    .pointsData(pts)
+    .pointLat('lat').pointLng('lng')
+    .pointColor(d => rgba(COLORS[d.cont] || '#555555', 0.85))
+    .pointRadius(0.01).pointAltitude(0.004)
+    .pointsMerge(false)
+    .pointsTransitionDuration(1000)
+    .pointLabel(d => `<b>${d.name}</b> (${yearStr})<br>${d.cont}<br>${d.pop.toLocaleString()} people`);
+  const gm = g.globeMaterial(); gm.color.set('#000000'); gm.emissive.set('#e1e5ea'); gm.shininess = 0;
+  g.controls().autoRotate = true;
+  g.controls().autoRotateSpeed = 0.6;
+  const fit = () => g.width(w()).height(h());
+  addEventListener('resize', fit);
+  if (window.ResizeObserver) new ResizeObserver(fit).observe(box);
+  setTimeout(() => g.pointRadius(d => radius(d.pop)), 200);
+}
+
+// Fallback for browsers without WebGL (some embedded browsers): same globe drawn on a 2D canvas.
+function startFlat() {
+  const box = document.getElementById('globe'); box.innerHTML = '';
+  const cv = document.createElement('canvas'); box.appendChild(cv);
+  const tip = document.createElement('div');
+  tip.style.cssText = 'position:fixed;pointer-events:none;background:rgba(30,34,40,.92);color:#fff;padding:5px 9px;border-radius:4px;font-size:12px;display:none;z-index:5';
+  document.body.appendChild(tip);
+  const ctx = cv.getContext('2d'), dpr = window.devicePixelRatio || 1;
+  let W, H, R;
+  const fit = () => { W = box.clientWidth || innerWidth; H = box.clientHeight || innerHeight; cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + 'px'; cv.style.height = H + 'px'; R = Math.min(W, H) * 0.42; };
+  fit(); addEventListener('resize', fit);
+  if (window.ResizeObserver) new ResizeObserver(fit).observe(box);
+
+  const D = Math.PI / 180, s0 = Math.sin(20 * D), c0 = Math.cos(20 * D);
+  let lon0 = 0, drag = null, mouse = null, t0 = performance.now(), last = t0;
+  const proj = (lat, lng) => {
+    const f = lat * D, l = (lng - lon0) * D;
+    return { x: W / 2 + R * Math.cos(f) * Math.sin(l), y: H / 2 - R * (c0 * Math.sin(f) - s0 * Math.cos(f) * Math.cos(l)), v: s0 * Math.sin(f) + c0 * Math.cos(f) * Math.cos(l) };
+  };
+  const edge = p => {            // points on the far side are pushed to the rim
+    if (p.v >= 0) return p;
+    const dx = p.x - W / 2, dy = p.y - H / 2, n = Math.hypot(dx, dy) || 1;
+    return { x: W / 2 + dx / n * R, y: H / 2 + dy / n * R, v: p.v };
+  };
+  const ring = r => { r.forEach((c, i) => { const p = edge(proj(c[1], c[0])); i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); }); ctx.closePath(); };
+
+  cv.addEventListener('mousedown', e => { drag = { x: e.clientX, lon: lon0 }; });
+  addEventListener('mouseup', () => { drag = null; });
+  cv.addEventListener('mousemove', e => { const b = cv.getBoundingClientRect(); mouse = { x: e.clientX - b.left, y: e.clientY - b.top, cx: e.clientX, cy: e.clientY }; if (drag) lon0 = drag.lon - (e.clientX - drag.x) * 0.3; });
+  cv.addEventListener('mouseleave', () => { mouse = null; drag = null; });
+
+  (function frame(now) {
+    const dt = now - last; last = now;
+    const grow = Math.min(1, (now - t0) / 1000), ease = 1 - Math.pow(1 - grow, 3);
+    let hit = null;
+    if (!drag && !(mouse && tip.style.display === 'block')) lon0 += dt * 0.01;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    ctx.save();
+    ctx.beginPath(); ctx.arc(W / 2, H / 2, R, 0, 2 * Math.PI);
+    ctx.fillStyle = '#e1e5ea'; ctx.fill(); ctx.clip();
+    ctx.fillStyle = '#aab2bb'; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 0.6;
+    WORLD.forEach(f => {
+      const polys = f.geometry.type === 'Polygon' ? [f.geometry.coordinates] : f.geometry.coordinates;
+      polys.forEach(pl => { ctx.beginPath(); pl.forEach(ring); ctx.fill('evenodd'); ctx.stroke(); });
+    });
+    ctx.restore();
+    ctx.beginPath(); ctx.arc(W / 2, H / 2, R, 0, 2 * Math.PI); ctx.strokeStyle = '#cfd4da'; ctx.lineWidth = 1; ctx.stroke();
+    for (let i = 0; i < pts.length; i++) {
+      const d = pts[i], p = proj(d.lat, d.lng);
+      if (p.v <= 0.02) continue;
+      const r = Math.max(1.5, R * radius(d.pop) * D * ease * (0.55 + 0.45 * p.v));
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 2 * Math.PI);
+      ctx.fillStyle = rgba(COLORS[d.cont] || '#555555', 0.85); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 0.6; ctx.stroke();
+      if (mouse && Math.hypot(mouse.x - p.x, mouse.y - p.y) <= Math.max(r, 4)) hit = d;
+    }
+    if (hit && !drag) { tip.innerHTML = `<b>${hit.name}</b> (${yearStr})<br>${hit.cont}<br>${hit.pop.toLocaleString()} people`; tip.style.display = 'block'; tip.style.left = (mouse.cx + 14) + 'px'; tip.style.top = (mouse.cy + 14) + 'px'; }
+    else tip.style.display = 'none';
+    requestAnimationFrame(frame);
+  })(performance.now());
+}
+
+let ok = q.get('mode') !== 'flat' && webglOK();
+if (ok) { try { start3D(); } catch (e) { ok = false; document.getElementById('globe').innerHTML = ''; } }
+if (!ok) startFlat();
 </script>
 </body>
 </html>
